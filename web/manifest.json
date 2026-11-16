@@ -1,0 +1,9 @@
+{
+  "name": "SubGlass",
+  "short_name": "SubGlass",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#0A0A0C",
+  "theme_color": "#0A0A0C",
+  "description": "A private, local-first subscription tracker."
+}
