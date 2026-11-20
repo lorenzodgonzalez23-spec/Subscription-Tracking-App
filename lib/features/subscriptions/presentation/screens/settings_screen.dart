@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:uuid/uuid.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../../../core/services/backup_export_service.dart';
 import '../../../../core/services/exchange_rate_service.dart';
 import '../../../../core/theme/app_colors.dart';
+import '../../../../core/theme/app_theme.dart';
 import '../../data/app_database.dart';
 import '../../data/subscription_repository.dart';
 import '../../domain/payment_method_model.dart';
@@ -42,16 +44,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final _manualRateController = TextEditingController();
   String _baseCurrency = 'PHP';
   String _overrideCurrency = 'USD';
-  late Map<String, double> _rates;
   late List<PaymentMethod> _methods;
   bool _loading = true;
   bool _busy = false;
   String? _error;
+  String _appearance = 'light';
+  bool _renewalReminders = true;
+  bool _monthlySummary = true;
 
   @override
   void initState() {
     super.initState();
-    _rates = Map.of(widget.rates);
     _methods = List.of(widget.methods);
     _loadSettings();
   }
@@ -65,6 +68,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
       'base_currency',
       fallback: 'PHP',
     );
+    final appearance = await widget.repository.getSetting(
+      'appearance',
+      fallback: 'light',
+    );
+    final renewalReminders = await widget.repository.getSetting(
+      'renewal_reminders',
+      fallback: 'true',
+    );
+    final monthlySummary = await widget.repository.getSetting(
+      'monthly_summary',
+      fallback: 'true',
+    );
     final manual = await widget.repository.getSetting(
       'manual_rate_$_overrideCurrency',
       fallback: '',
@@ -74,6 +89,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _budgetController.text = budget;
       _baseCurrency = _currencies.contains(base) ? base : 'PHP';
       _manualRateController.text = manual;
+      _appearance = appearance;
+      _renewalReminders = renewalReminders != 'false';
+      _monthlySummary = monthlySummary != 'false';
       _loading = false;
     });
   }
@@ -98,6 +116,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
     try {
       await widget.repository.setSetting('monthly_budget', budget.toString());
       await widget.repository.setSetting('base_currency', _baseCurrency);
+      await widget.repository.setSetting('appearance', _appearance);
+      await widget.repository.setSetting(
+        'renewal_reminders',
+        _renewalReminders.toString(),
+      );
+      await widget.repository.setSetting(
+        'monthly_summary',
+        _monthlySummary.toString(),
+      );
+      final preferences = await SharedPreferences.getInstance();
+      await preferences.setString('appearance', _appearance);
+      AppTheme.themeModeNotifier.value = switch (_appearance) {
+        'dark' => ThemeMode.dark,
+        'system' => ThemeMode.system,
+        _ => ThemeMode.light,
+      };
       if (rate == null) {
         await widget.repository.removeSetting('manual_rate_$_overrideCurrency');
       } else {
@@ -107,7 +141,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
         );
       }
       widget.onChanged();
-      if (mounted) Navigator.pop(context);
     } catch (error) {
       if (mounted) setState(() => _error = error.toString());
     } finally {
@@ -123,11 +156,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     try {
       final service = ExchangeRateService(widget.repository);
       try {
-        final fresh = await service.loadRates(refresh: true);
+        await service.loadRates(refresh: true);
         if (!mounted) return;
-        setState(() {
-          _rates = fresh;
-        });
+        widget.onChanged();
       } finally {
         service.close();
       }
@@ -271,209 +302,313 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   @override
-  Widget build(BuildContext context) => AlertDialog(
-    title: const Text('Settings'),
-    content: SizedBox(
-      width: 520,
-      child: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : SingleChildScrollView(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  DropdownButtonFormField<String>(
-                    value: _baseCurrency,
-                    decoration: const InputDecoration(
-                      labelText: 'Primary currency',
+  Widget build(BuildContext context) {
+    if (_loading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    Widget settingTile({
+      required IconData icon,
+      required String title,
+      required String subtitle,
+      Widget? trailing,
+      VoidCallback? onTap,
+    }) =>
+        ListTile(
+          contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+          leading: CircleAvatar(
+            backgroundColor: Theme.of(context).colorScheme.surfaceContainerHigh,
+            child: Icon(icon, color: Theme.of(context).colorScheme.onSurface),
+          ),
+          title: Text(title),
+          subtitle: Text(subtitle),
+          trailing: trailing,
+          onTap: onTap,
+        );
+
+    return CustomScrollView(
+      slivers: [
+        const SliverAppBar(pinned: true, title: Text('Settings')),
+        SliverPadding(
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 112),
+          sliver: SliverList(
+            delegate: SliverChildListDelegate([
+              Text(
+                'Make it feel like you.',
+                style: Theme.of(context).textTheme.headlineMedium,
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Your view. Your reminders. Your rhythm.',
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: 20),
+              Text('Appearance', style: Theme.of(context).textTheme.titleMedium),
+              const SizedBox(height: 8),
+              Container(
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.surfaceContainerLow,
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Column(
+                  children: [
+                    settingTile(
+                      icon: Icons.light_mode_outlined,
+                      title: 'Light',
+                      subtitle: 'A fresh start, any time of day',
+                      trailing: Radio<String>(
+                        value: 'light',
+                        groupValue: _appearance,
+                        onChanged: (value) =>
+                            setState(() => _appearance = value ?? 'light'),
+                      ),
+                      onTap: () => setState(() => _appearance = 'light'),
                     ),
-                    items: _currencies
-                        .map(
-                          (code) =>
-                              DropdownMenuItem(value: code, child: Text(code)),
-                        )
-                        .toList(),
-                    onChanged: (value) =>
-                        setState(() => _baseCurrency = value ?? 'PHP'),
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: _budgetController,
-                    keyboardType: const TextInputType.numberWithOptions(
-                      decimal: true,
+                    settingTile(
+                      icon: Icons.dark_mode_outlined,
+                      title: 'Dark',
+                      subtitle: 'Easy on the eyes after hours',
+                      trailing: Radio<String>(
+                        value: 'dark',
+                        groupValue: _appearance,
+                        onChanged: (value) =>
+                            setState(() => _appearance = value ?? 'dark'),
+                      ),
+                      onTap: () => setState(() => _appearance = 'dark'),
                     ),
-                    decoration: InputDecoration(
-                      labelText: 'Monthly budget ($_baseCurrency)',
+                    settingTile(
+                      icon: Icons.settings_suggest_outlined,
+                      title: 'Use device setting',
+                      subtitle: 'Match your system appearance',
+                      trailing: Radio<String>(
+                        value: 'system',
+                        groupValue: _appearance,
+                        onChanged: (value) =>
+                            setState(() => _appearance = value ?? 'system'),
+                      ),
+                      onTap: () => setState(() => _appearance = 'system'),
                     ),
-                  ),
-                  const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: DropdownButtonFormField<String>(
-                          value: _overrideCurrency,
-                          decoration: const InputDecoration(
-                            labelText: 'Override rate for',
-                          ),
-                          items: _currencies
-                              .where((code) => code != 'PHP')
-                              .map(
-                                (code) => DropdownMenuItem(
-                                  value: code,
-                                  child: Text(code),
-                                ),
-                              )
-                              .toList(),
-                          onChanged: (value) async {
-                            final code = value ?? 'USD';
-                            final manual = await widget.repository.getSetting(
-                              'manual_rate_$code',
-                              fallback: '',
-                            );
-                            if (!mounted) return;
-                            setState(() {
-                              _overrideCurrency = code;
-                              _manualRateController.text = manual;
-                            });
-                          },
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: TextField(
-                          controller: _manualRateController,
-                          keyboardType: const TextInputType.numberWithOptions(
-                            decimal: true,
-                          ),
-                          decoration: InputDecoration(
-                            labelText: 'PHP per 1 unit',
-                            helperText: _rates[_overrideCurrency] == null
-                                ? 'No live rate cached'
-                                : 'Live rate: ${_rates[_overrideCurrency]}',
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: TextButton.icon(
-                      onPressed: _busy ? null : _refreshRates,
-                      icon: const Icon(Icons.refresh),
-                      label: const Text('Refresh live rates'),
-                    ),
-                  ),
-                  const Divider(height: 26),
-                  Row(
-                    children: [
-                      const Expanded(
-                        child: Text(
-                          'Payment methods',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ),
-                      IconButton(
-                        onPressed: _addPaymentMethod,
-                        icon: const Icon(Icons.add_circle_outline),
-                      ),
-                    ],
-                  ),
-                  if (_methods.isEmpty)
-                    const Text(
-                      'No payment methods added.',
-                      style: TextStyle(color: AppColors.muted),
-                    ),
-                  for (final method in _methods)
-                    ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: CircleAvatar(
-                        radius: 8,
-                        backgroundColor: Color(method.colorHex),
-                      ),
-                      title: Text(method.name),
-                      subtitle: method.lastFour == null
-                          ? null
-                          : Text('•••• ${method.lastFour}'),
-                      trailing: IconButton(
-                        icon: const Icon(Icons.delete_outline),
-                        onPressed: () => _removePaymentMethod(method),
-                      ),
-                    ),
-                  const Divider(height: 26),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      OutlinedButton.icon(
-                        onPressed: _busy
-                            ? null
-                            : () async {
-                                try {
-                                  await BackupExportService(
-                                    widget.database,
-                                    widget.repository,
-                                  ).exportBackup();
-                                } catch (error) {
-                                  if (mounted) {
-                                    setState(
-                                      () => _error = 'Backup failed: $error',
-                                    );
-                                  }
-                                }
-                              },
-                        icon: const Icon(Icons.archive_outlined),
-                        label: const Text('Export backup'),
-                      ),
-                      OutlinedButton.icon(
-                        onPressed: _busy
-                            ? null
-                            : () async {
-                                try {
-                                  await BackupExportService(
-                                    widget.database,
-                                    widget.repository,
-                                  ).importBackup();
-                                  widget.onChanged();
-                                  if (context.mounted) Navigator.pop(context);
-                                } catch (error) {
-                                  if (mounted) {
-                                    setState(
-                                      () => _error = 'Restore failed: $error',
-                                    );
-                                  }
-                                }
-                              },
-                        icon: const Icon(Icons.unarchive_outlined),
-                        label: const Text('Restore backup'),
-                      ),
-                    ],
-                  ),
-                  if (_error != null) ...[
-                    const SizedBox(height: 10),
-                    Text(_error!, style: const TextStyle(color: AppColors.red)),
                   ],
+                ),
+              ),
+              const SizedBox(height: 18),
+              Text(
+                'Keep me in the loop',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              const SizedBox(height: 8),
+              Container(
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.surfaceContainerLow,
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Column(
+                  children: [
+                    settingTile(
+                      icon: Icons.notifications_outlined,
+                      title: 'Renewal reminders',
+                      subtitle: 'Get notified before renewals',
+                      trailing: Switch(
+                        value: _renewalReminders,
+                        onChanged: (value) =>
+                            setState(() => _renewalReminders = value),
+                      ),
+                    ),
+                    settingTile(
+                      icon: Icons.pie_chart_outline,
+                      title: 'Monthly summary',
+                      subtitle: 'Your spending, in perspective',
+                      trailing: Switch(
+                        value: _monthlySummary,
+                        onChanged: (value) =>
+                            setState(() => _monthlySummary = value),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 18),
+              Text('Preferences', style: Theme.of(context).textTheme.titleMedium),
+              const SizedBox(height: 8),
+              TextField(
+                controller: _budgetController,
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                decoration: const InputDecoration(labelText: 'Monthly budget'),
+              ),
+              const SizedBox(height: 12),
+              DropdownButtonFormField<String>(
+                value: _baseCurrency,
+                decoration: const InputDecoration(labelText: 'Default currency'),
+                items: _currencies
+                    .map((code) => DropdownMenuItem(value: code, child: Text(code)))
+                    .toList(),
+                onChanged: (value) =>
+                    setState(() => _baseCurrency = value ?? 'PHP'),
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: DropdownButtonFormField<String>(
+                      value: _overrideCurrency,
+                      decoration: const InputDecoration(labelText: 'Override rate'),
+                      items: _currencies
+                          .where((code) => code != 'PHP')
+                          .map((code) =>
+                              DropdownMenuItem(value: code, child: Text(code)))
+                          .toList(),
+                      onChanged: (value) async {
+                        final code = value ?? 'USD';
+                        final manual = await widget.repository.getSetting(
+                          'manual_rate_$code',
+                          fallback: '',
+                        );
+                        if (!mounted) return;
+                        setState(() {
+                          _overrideCurrency = code;
+                          _manualRateController.text = manual;
+                        });
+                      },
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: TextField(
+                      controller: _manualRateController,
+                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                      decoration: const InputDecoration(labelText: 'PHP per unit'),
+                    ),
+                  ),
                 ],
               ),
-            ),
-    ),
-    actions: [
-      TextButton(
-        onPressed: () => Navigator.pop(context),
-        child: const Text('Close'),
-      ),
-      FilledButton(
-        onPressed: _loading || _busy ? null : _saveSettings,
-        child: _busy
-            ? const SizedBox(
-                height: 18,
-                width: 18,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              )
-            : const Text('Save settings'),
-      ),
-    ],
-  );
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton.icon(
+                  onPressed: _busy ? null : _refreshRates,
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('Refresh live rates'),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'Payment methods',
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'Add payment method',
+                    onPressed: _addPaymentMethod,
+                    icon: const Icon(Icons.add),
+                  ),
+                ],
+              ),
+              for (final method in _methods)
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: CircleAvatar(
+                    radius: 8,
+                    backgroundColor: Color(method.colorHex),
+                  ),
+                  title: Text(method.name),
+                  subtitle: method.lastFour == null
+                      ? null
+                      : Text('•••• ${method.lastFour}'),
+                  trailing: IconButton(
+                    icon: const Icon(Icons.delete_outline),
+                    onPressed: () => _removePaymentMethod(method),
+                  ),
+                ),
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  OutlinedButton.icon(
+                    onPressed: _busy
+                        ? null
+                        : () async {
+                            try {
+                              await BackupExportService(
+                                widget.database,
+                                widget.repository,
+                              ).exportBackup();
+                            } catch (error) {
+                              if (mounted) {
+                                setState(() => _error = 'Backup failed: $error');
+                              }
+                            }
+                          },
+                    icon: const Icon(Icons.archive_outlined),
+                    label: const Text('Export backup'),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: _busy
+                        ? null
+                        : () async {
+                            try {
+                              await BackupExportService(
+                                widget.database,
+                                widget.repository,
+                              ).importBackup();
+                              widget.onChanged();
+                            } catch (error) {
+                              if (mounted) {
+                                setState(() => _error = 'Restore failed: $error');
+                              }
+                            }
+                          },
+                    icon: const Icon(Icons.unarchive_outlined),
+                    label: const Text('Restore backup'),
+                  ),
+                ],
+              ),
+              if (_error != null) ...[
+                const SizedBox(height: 10),
+                Text(_error!, style: const TextStyle(color: AppColors.red)),
+              ],
+              const SizedBox(height: 20),
+              SizedBox(
+                width: double.infinity,
+                height: 56,
+                child: FilledButton(
+                  onPressed: _loading || _busy ? null : _saveSettings,
+                  style: FilledButton.styleFrom(shape: const StadiumBorder()),
+                  child: _busy
+                      ? const SizedBox(
+                          height: 18,
+                          width: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Text('Save settings'),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Center(
+                child: Column(
+                  children: [
+                    Text(
+                      'Orbit',
+                      style: Theme.of(context).textTheme.titleLarge,
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Less subscription stress. More space for you.',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ]),
+          ),
+        ),
+      ],
+    );
+  }
 }
