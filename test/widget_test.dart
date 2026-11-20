@@ -45,12 +45,8 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('SubGlass'), findsOneWidget);
-    expect(find.text('Recurring spend'), findsOneWidget);
-    expect(
-      find.text('No subscriptions yet. Add one to get started.'),
-      findsOneWidget,
-    );
+    expect(find.text('Orbit'), findsOneWidget);
+    expect(find.text('Add subscription'), findsOneWidget);
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
