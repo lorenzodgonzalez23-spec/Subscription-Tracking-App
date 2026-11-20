@@ -16,6 +16,11 @@ their original currency.
 - CSV export and ZIP backup/restore with subscription images.
 - Responsive mobile dashboard and tablet/desktop navigation layout.
 
+- <img width="930" height="695" alt="image" src="https://github.com/user-attachments/assets/45f1e404-bab2-4774-a064-7d6348c1e267" />
+- <img width="916" height="690" alt="image" src="https://github.com/user-attachments/assets/20743455-49e5-4463-ba0c-202c2ff34a52" />
+
+
+
 ## Run
 
 Install Flutter with Dart 3.8 or later (Flutter 3.32+), then:
